@@ -122,7 +122,7 @@ catkin_package(
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules)
 set(CMAKE_BUILD_TYPE Release)
-set(CMAKE_CXX_FLAGS "-std=c++11")
+#set(CMAKE_CXX_FLAGS "-std=c++11")
 
 # Find g2o
 FIND_PACKAGE(G2O REQUIRED)
