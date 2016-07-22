@@ -26,6 +26,8 @@
 #include "nav_msgs/Odometry.h"
 #include "geometry_msgs/PoseArray.h"
 
+#include "nav_msgs/GetMap.h"
+
 //openCV
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
@@ -74,6 +76,8 @@ class ROS_handler
 			odom_sub_ = n.subscribe("pose_corrected", 1, &ROS_handler::odomCallback, this);
 			pose_sub_ = n.subscribe("/robot_0/trajectory", 1, &ROS_handler::poseCallback, this);
 			
+//			map_sub_ = n.subscribe("map", 2, &ROS_handler::mapCallback, this); //mapname_ to include different name
+			
 			timer = n.createTimer(ros::Duration(0.5), &ROS_handler::metronomeCallback, this);
 			image_pub_ = it_.advertise("/image_g2o", 1);
 			
@@ -109,6 +113,12 @@ class ROS_handler
 			cout<< "Im in "<<endl;
 		}
 
+/////////////////
+		void mapCallback(const ros::TimerEvent&)
+		{
+			int a=1;
+		}
+
 
 
 ////////////////////////
@@ -130,16 +140,15 @@ class ROS_handler
 
 
 	resolution = 0.05f;
-	threshold =  -1.0;
-	rows = 0;
-	cols = 0;
-	rows = 1000;
-	cols = 1000;
+	threshold =  0.8;//-1.0;
+	rows = cols = 0;
+//	rows = 	cols = 1000;
 	max_range = -1.0;
-	usable_range =  -1.0;
+//	usable_range =  -1.0;
+	usable_range =  10;
 	gain =  1;
 	square_size= 1;
-	angle =  M_PI/2;
+	angle =  0;//M_PI/2;
 	g2oFilename= "robot-0-testmrslam.g2o";
 	mapFilename= "no importa";
 	
@@ -176,13 +185,11 @@ class ROS_handler
   Eigen::Matrix2d boundingBox = Eigen::Matrix2d::Zero();
   std::vector<RobotLaser*> robotLasers;
   std::vector<SE2> robotPoses;
-  double xmin=std::numeric_limits<double>::max();
-  double xmax=std::numeric_limits<double>::min();
-  double ymin=std::numeric_limits<double>::max();
-  double ymax=std::numeric_limits<double>::min();
+  double xmin=std::numeric_limits<double>::infinity();
+  double xmax=-std::numeric_limits<double>::infinity();
+  double ymin=std::numeric_limits<double>::infinity();
+  double ymax=-std::numeric_limits<double>::infinity();
 
-	ymax=-1000; // proxy
-	xmax=-1000; // proxy
 
   SE2 baseTransform(0,0,angle);
 
@@ -234,10 +241,11 @@ class ROS_handler
    ************************************************************************/
   // Create the map
   Eigen::Vector2i size;
+	std::cout << " xlength " << (xmax-xmin)/resolution<< " ylength " << (ymax-ymin)/resolution  << std::endl; 
   if(rows != 0 && cols != 0) { size = Eigen::Vector2i(rows, cols); }
   else {
-    size = Eigen::Vector2i(2*(boundingBox(0, 1) - boundingBox(0, 0))/ resolution,
-			   2*(boundingBox(1, 1) - boundingBox(1, 0))/ resolution);
+    size = Eigen::Vector2i((boundingBox(0, 1) - boundingBox(0, 0))/ resolution,
+			   (boundingBox(1, 1) - boundingBox(1, 0))/ resolution);
 	int square = max((xmax - xmin)/ resolution, (ymax - ymin)/ resolution);
 //    size = Eigen::Vector2i(2*square,2*square);
     } 
@@ -249,10 +257,10 @@ class ROS_handler
 
 
   //Eigen::Vector2f offset(-size.x() * resolution / 2.0f, -size.y() * resolution / 2.0f);
-//  Eigen::Vector2f offset(boundingBox(0, 0),boundingBox(1, 0));
+  Eigen::Vector2f offset(boundingBox(0, 0),boundingBox(1, 0));
 //  Eigen::Vector2f offset(-18, -36);
 //  Eigen::Vector2f offset(  (xmin+xmax)/2- 25, (ymin+ymax)/2 - 25);
-  Eigen::Vector2f offset(  (xmin+xmax)/2- size.x()*resolution/2, (ymin+ymax)/2 - size.y()*resolution/2);
+//  Eigen::Vector2f offset(  (xmin+xmax)/2- size.x()*resolution/2, (ymin+ymax)/2 - size.y()*resolution/2);
 //  Eigen::Vector2f offset(  xmax, ymax);
   FrequencyMapCell unknownCell;
 
@@ -297,7 +305,7 @@ class ROS_handler
 	else if (threshold > 0 && fraction <= threshold)
 	  mapImage.at<unsigned char>(r, c) = 255;
 	else {
-	  float val = 255*(1-fraction);
+	  float val =  255*(1-fraction);
 	  mapImage.at<unsigned char>(r, c) = (unsigned char)val;
 	}
 
@@ -312,7 +320,13 @@ class ROS_handler
   }
 
 
+
 	cv::Mat grad = mapImage;
+
+	cv::Rect first_rect = find_image_bounding_Rect(mapImage); 
+	std::cout << " first_rect " << first_rect  << std::endl; 
+	
+	
 	
 	cv_ptr->encoding = "32FC1";
 	grad.convertTo(grad, CV_32F);
@@ -324,6 +338,19 @@ class ROS_handler
 
 
 
+///////////////////////////////////
+
+		cv::Rect find_image_bounding_Rect(cv::Mat Occ_Image){
+			cv::Mat valid_image = Occ_Image < 101;
+			std::vector<std::vector<cv::Point> > test_contour;
+			cv::findContours(valid_image, test_contour, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE );
+
+			cv::Rect first_rect = cv::boundingRect(test_contour[0]);
+			for(int i=1; i < test_contour.size(); i++){
+				first_rect |= cv::boundingRect(test_contour[i]);
+			}
+			return first_rect;
+		}
 
 
 
