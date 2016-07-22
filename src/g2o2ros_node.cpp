@@ -120,7 +120,7 @@ class ROS_handler
 
 ///////////////////////////////////////////
 
-int read_and_publish() {
+		int read_and_publish() {
   /************************************************************************
    *                          Input handling                              *
    ************************************************************************/
@@ -130,14 +130,16 @@ int read_and_publish() {
 
 
 	resolution = 0.05f;
-	threshold =  -1.0f;
-	rows, 0;
-	cols, 0;
-	max_range= -1.0f;
-	usable_range, -1.0f;
+	threshold =  -1.0;
+	rows = 0;
+	cols = 0;
+	rows = 1000;
+	cols = 1000;
+	max_range = -1.0;
+	usable_range =  -1.0;
 	gain =  1;
 	square_size= 1;
-	angle =  0;
+	angle =  M_PI/2;
 	g2oFilename= "robot-0-testmrslam.g2o";
 	mapFilename= "no importa";
 	
@@ -179,6 +181,9 @@ int read_and_publish() {
   double ymin=std::numeric_limits<double>::max();
   double ymax=std::numeric_limits<double>::min();
 
+	ymax=-1000; // proxy
+	xmax=-1000; // proxy
+
   SE2 baseTransform(0,0,angle);
 
   for(size_t i = 0; i < vertexIds.size(); ++i) {
@@ -215,6 +220,10 @@ int read_and_publish() {
 
   std::cout << "Found " << robotLasers.size() << " laser scans"<< std::endl;
   std::cout << "Bounding box: " << std::endl << boundingBox << std::endl; 
+  
+  std::cout << " xmin " << xmin<< " ymin " << ymin<< " xmax " << xmax<< " ymax " << ymax << std::endl; 
+  
+  
   if(robotLasers.size() == 0)  {
     std::cout << "No laser scans found ... quitting!" << std::endl;
     return 0;
@@ -227,23 +236,30 @@ int read_and_publish() {
   Eigen::Vector2i size;
   if(rows != 0 && cols != 0) { size = Eigen::Vector2i(rows, cols); }
   else {
-    size = Eigen::Vector2i((boundingBox(0, 1) - boundingBox(0, 0))/ resolution,
-			   (boundingBox(1, 1) - boundingBox(1, 0))/ resolution);
+    size = Eigen::Vector2i(2*(boundingBox(0, 1) - boundingBox(0, 0))/ resolution,
+			   2*(boundingBox(1, 1) - boundingBox(1, 0))/ resolution);
+	int square = max((xmax - xmin)/ resolution, (ymax - ymin)/ resolution);
+//    size = Eigen::Vector2i(2*square,2*square);
     } 
-  std::cout << "Map size: " << size.transpose() << std::endl;
+//  std::cout << "Map size: " << size.transpose() << std::endl;
   if(size.x() == 0 || size.y() == 0) {
     std::cout << "Zero map size ... quitting!" << std::endl;
     return 0;
   }
 
-	cout<< "justo despues "<<endl;  
 
   //Eigen::Vector2f offset(-size.x() * resolution / 2.0f, -size.y() * resolution / 2.0f);
-  Eigen::Vector2f offset(boundingBox(0, 0),boundingBox(1, 0));
+//  Eigen::Vector2f offset(boundingBox(0, 0),boundingBox(1, 0));
+//  Eigen::Vector2f offset(-18, -36);
+//  Eigen::Vector2f offset(  (xmin+xmax)/2- 25, (ymin+ymax)/2 - 25);
+  Eigen::Vector2f offset(  (xmin+xmax)/2- size.x()*resolution/2, (ymin+ymax)/2 - size.y()*resolution/2);
+//  Eigen::Vector2f offset(  xmax, ymax);
   FrequencyMapCell unknownCell;
+
+
+
   FrequencyMap map = FrequencyMap(resolution, offset, size, unknownCell);
 
-	cout<< "antes de asginar"<<endl;
 
   for(size_t i = 0; i < vertexIds.size(); ++i) {
     OptimizableGraph::Vertex *_v = graph->vertex(vertexIds[i]);
@@ -267,6 +283,7 @@ int read_and_publish() {
    *                          Save map image                              *
    ************************************************************************/
   cv::Mat mapImage(map.rows(), map.cols(), CV_8UC1);
+//  cv::Mat mapImage(map.cols(), map.rows(), CV_8UC1);
   mapImage.setTo(cv::Scalar(0));
   for(int c = 0; c < map.cols(); c++) {
     for(int r = 0; r < map.rows(); r++) {
@@ -294,7 +311,6 @@ int read_and_publish() {
     }
   }
 
-	cout<< "despues de asginar "<<endl;
 
 	cv::Mat grad = mapImage;
 	
@@ -344,191 +360,3 @@ int main(int argc, char **argv)
 
 
 
-
-
-int read_and_publish() {
-  /************************************************************************
-   *                          Input handling                              *
-   ************************************************************************/
-  float rows, cols, gain, square_size;
-  float resolution, max_range, usable_range, angle, threshold;
-  string g2oFilename, mapFilename;
-
-
-	resolution = 0.05f;
-	threshold =  -1.0f;
-	rows, 0;
-	cols, 0;
-	max_range= -1.0f;
-	usable_range, -1.0f;
-	gain =  1;
-	square_size= 1;
-	angle =  0;
-	g2oFilename= "pepito.g2o";
-	mapFilename= "no importa";
-	
-
-
-
-
-  /************************************************************************
-   *                          Loading Graph                               *
-   ************************************************************************/
-  // Load graph
-  typedef BlockSolver< BlockSolverTraits<-1, -1> >  SlamBlockSolver;
-  typedef LinearSolverCSparse<SlamBlockSolver::PoseMatrixType> SlamLinearSolver;
-  SlamLinearSolver *linearSolver = new SlamLinearSolver();
-  linearSolver->setBlockOrdering(false);
-  SlamBlockSolver *blockSolver = new SlamBlockSolver(linearSolver);
-  OptimizationAlgorithmGaussNewton *solverGauss = new OptimizationAlgorithmGaussNewton(blockSolver);
-  SparseOptimizer *graph = new SparseOptimizer();
-  graph->setAlgorithm(solverGauss);    
-  graph->load(g2oFilename.c_str());
-  
-  // Sort verteces
-  vector<int> vertexIds(graph->vertices().size());
-  int k = 0;
-  for(OptimizableGraph::VertexIDMap::iterator it = graph->vertices().begin(); it != graph->vertices().end(); ++it) {
-    vertexIds[k++] = (it->first);
-  }  
-  sort(vertexIds.begin(), vertexIds.end());
-  
-  /************************************************************************
-   *                          Compute map size                            *
-   ************************************************************************/
-  // Check the entire graph to find map bounding box
-  Eigen::Matrix2d boundingBox = Eigen::Matrix2d::Zero();
-  std::vector<RobotLaser*> robotLasers;
-  std::vector<SE2> robotPoses;
-  double xmin=std::numeric_limits<double>::max();
-  double xmax=std::numeric_limits<double>::min();
-  double ymin=std::numeric_limits<double>::max();
-  double ymax=std::numeric_limits<double>::min();
-
-  SE2 baseTransform(0,0,angle);
-
-  for(size_t i = 0; i < vertexIds.size(); ++i) {
-    OptimizableGraph::Vertex *_v = graph->vertex(vertexIds[i]);
-    VertexSE2 *v = dynamic_cast<VertexSE2*>(_v);
-    if(!v) { continue; }
-    v->setEstimate(baseTransform*v->estimate());
-    OptimizableGraph::Data *d = v->userData();
-
-    while(d) {
-      RobotLaser *robotLaser = dynamic_cast<RobotLaser*>(d);
-      if(!robotLaser) {
-	d = d->next();
-	continue;
-      }      
-      robotLasers.push_back(robotLaser);
-      robotPoses.push_back(v->estimate());
-      double x = v->estimate().translation().x();
-      double y = v->estimate().translation().y();
-      
-      xmax = xmax > x+usable_range ? xmax : x+usable_range;
-      ymax = ymax > y+usable_range ? ymax : y+usable_range;
-      xmin = xmin < x-usable_range ? xmin : x-usable_range;
-      ymin = ymin < y-usable_range ? ymin : y-usable_range;
- 
-      d = d->next();
-    }
-  }
-
-  boundingBox(0,0)=xmin;
-  boundingBox(0,1)=xmax;
-  boundingBox(1,0)=ymin;
-  boundingBox(1,1)=ymax;
-
-  std::cout << "Found " << robotLasers.size() << " laser scans"<< std::endl;
-  std::cout << "Bounding box: " << std::endl << boundingBox << std::endl; 
-  if(robotLasers.size() == 0)  {
-    std::cout << "No laser scans found ... quitting!" << std::endl;
-    return 0;
-  }
-
-  /************************************************************************
-   *                          Compute the map                             *
-   ************************************************************************/
-  // Create the map
-  Eigen::Vector2i size;
-  if(rows != 0 && cols != 0) { size = Eigen::Vector2i(rows, cols); }
-  else {
-    size = Eigen::Vector2i((boundingBox(0, 1) - boundingBox(0, 0))/ resolution,
-			   (boundingBox(1, 1) - boundingBox(1, 0))/ resolution);
-    } 
-  std::cout << "Map size: " << size.transpose() << std::endl;
-  if(size.x() == 0 || size.y() == 0) {
-    std::cout << "Zero map size ... quitting!" << std::endl;
-    return 0;
-  }
-
-  
-
-  //Eigen::Vector2f offset(-size.x() * resolution / 2.0f, -size.y() * resolution / 2.0f);
-  Eigen::Vector2f offset(boundingBox(0, 0),boundingBox(1, 0));
-  FrequencyMapCell unknownCell;
-  FrequencyMap map = FrequencyMap(resolution, offset, size, unknownCell);
-
-  for(size_t i = 0; i < vertexIds.size(); ++i) {
-    OptimizableGraph::Vertex *_v = graph->vertex(vertexIds[i]);
-    VertexSE2 *v = dynamic_cast<VertexSE2*>(_v);
-    if(!v) { continue; }
-    OptimizableGraph::Data *d = v->userData();
-    SE2 robotPose = v->estimate();
-    
-    while(d) {
-      RobotLaser *robotLaser = dynamic_cast<RobotLaser*>(d);
-      if(!robotLaser) {
-	d = d->next();
-	continue;
-      }      
-      map.integrateScan(robotLaser, robotPose, max_range, usable_range, gain, square_size);
-      d = d->next();
-    }
-  }
-
-  /************************************************************************
-   *                          Save map image                              *
-   ************************************************************************/
-  cv::Mat mapImage(map.rows(), map.cols(), CV_8UC1);
-  mapImage.setTo(cv::Scalar(0));
-  for(int c = 0; c < map.cols(); c++) {
-    for(int r = 0; r < map.rows(); r++) {
-      if(map(r, c).misses() == 0 && map(r, c).hits() == 0) {
-	mapImage.at<unsigned char>(r, c) = 127;
-      } else {
-	float fraction = (float)map(r, c).hits()/(float)(map(r, c).hits()+map(r, c).misses());
-	
-	if (threshold > 0 && fraction > threshold)
-	  mapImage.at<unsigned char>(r, c) = 0;
-	else if (threshold > 0 && fraction <= threshold)
-	  mapImage.at<unsigned char>(r, c) = 255;
-	else {
-	  float val = 255*(1-fraction);
-	  mapImage.at<unsigned char>(r, c) = (unsigned char)val;
-	}
-
-      }
-      // else if(map(r, c).hits() > threshold) {
-      // 	mapImage.at<unsigned char>(r, c) = 255;
-      // }
-      // else {
-      // 	mapImage.at<unsigned char>(r, c) = 0;
-      // }
-    }
-  }
-  cv::imwrite(mapFilename + ".png", mapImage);
-
-  /************************************************************************
-   *                          Write yaml file                             *
-   ************************************************************************/
-  std::ofstream ofs(string(mapFilename + ".yaml").c_str());
-  Eigen::Vector3f origin(0.0f, 0.0f, 0.0f);
-  ofs << "image: " << mapFilename << ".png" << std::endl
-      << "resolution: " << resolution << std::endl
-      << "origin: [" << origin.x() << ", " << origin.y() << ", " << origin.z() << "]" << std::endl
-      << "negate: 0" << std::endl
-      << "occupied_thresh: " << 0.65f << std::endl
-      << "free_thresh: " << 0.2f << std::endl;
-  return 0;
-}

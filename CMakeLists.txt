@@ -155,6 +155,10 @@ INCLUDE_DIRECTORIES(${OpenCV_INCLUDE_DIRS})
 
 include_directories(${CSPARSE_INCLUDE_DIR})
 
+
+
+
+
 ## Declare a C++ executable
 add_executable(g2o2ros 
   src/g2o2ros.cpp
