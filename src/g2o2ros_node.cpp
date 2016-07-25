@@ -69,6 +69,8 @@ class ROS_handler
 	ros::Subscriber odom_sub_;
 	ros::Subscriber pose_sub_;
 	
+	ros::Publisher map_pub_;
+	
 	public:
 		ROS_handler(const std::string& mapname, float threshold) : mapname_(mapname),  it_(n), Decomp_threshold_(threshold)
 		{
@@ -76,11 +78,12 @@ class ROS_handler
 			odom_sub_ = n.subscribe("pose_corrected", 1, &ROS_handler::odomCallback, this);
 			pose_sub_ = n.subscribe("/robot_0/trajectory", 1, &ROS_handler::poseCallback, this);
 			
-//			map_sub_ = n.subscribe("map", 2, &ROS_handler::mapCallback, this); //mapname_ to include different name
+			map_sub_ = n.subscribe("/map", 2, &ROS_handler::mapCallback, this); //mapname_ to include different name
 			
 			timer = n.createTimer(ros::Duration(0.5), &ROS_handler::metronomeCallback, this);
 			image_pub_ = it_.advertise("/image_g2o", 1);
 			
+			map_pub_ =  n.advertise<nav_msgs::OccupancyGrid>("map_g2o", 10);
 			
 			cv_ptr.reset (new cv_bridge::CvImage);
 			cv_ptr->encoding = "mono8";
@@ -108,15 +111,20 @@ class ROS_handler
 
 ////////////////
 		void poseCallback(const geometry_msgs::PoseArray& msg)
-		{
-			read_and_publish();
-			cout<< "Im in "<<endl;
+		{			
+			nav_msgs::OccupancyGrid map_msg;	
+			map_msg.header =msg.header;
+			
+			read_and_publish(map_msg);
+
+			map_pub_.publish(map_msg);
 		}
 
 /////////////////
-		void mapCallback(const ros::TimerEvent&)
+		void mapCallback(const nav_msgs::OccupancyGridConstPtr& map)
 		{
 			int a=1;
+
 		}
 
 
@@ -130,7 +138,7 @@ class ROS_handler
 
 ///////////////////////////////////////////
 
-		int read_and_publish() {
+		int read_and_publish(nav_msgs::OccupancyGrid &map_msg) {
   /************************************************************************
    *                          Input handling                              *
    ************************************************************************/
@@ -318,7 +326,75 @@ class ROS_handler
       // }
     }
   }
+  
+  
+  /************************************************************************
+   *                          Save map Occupancy Grid                              *
+   ************************************************************************/
+   map_msg.info.resolution = resolution;
+   map_msg.info.width = map.rows();
+   map_msg.info.height = map.cols();
+   
+	map_msg.info.origin.position.x = boundingBox(0, 0);
+	map_msg.info.origin.position.y = boundingBox(1, 0);
 
+
+	std::vector<signed char> data_vector;
+
+	for(int c = 0; c < map.cols(); c++) {
+		for(int r = 0; r < map.rows(); r++) {
+			int value;
+			if(map(r, c).misses() == 0 && map(r, c).hits() == 0) {
+				value=255;
+				data_vector.push_back((char)value);
+				  } 
+			else {
+				float fraction = (float)map(r, c).hits()/(float)(map(r, c).hits()+map(r, c).misses());
+				float val = 100*fraction;
+				data_vector.push_back((char)val);
+
+			}
+		}
+	}
+
+	map_msg.data = data_vector;
+
+
+
+
+
+
+
+/*   
+  cv::Mat mapImage(map.rows(), map.cols(), CV_8UC1);
+//  cv::Mat mapImage(map.cols(), map.rows(), CV_8UC1);
+  mapImage.setTo(cv::Scalar(0));
+  for(int c = 0; c < map.cols(); c++) {
+    for(int r = 0; r < map.rows(); r++) {
+      if(map(r, c).misses() == 0 && map(r, c).hits() == 0) {
+	mapImage.at<unsigned char>(r, c) = 127;
+      } else {
+	float fraction = (float)map(r, c).hits()/(float)(map(r, c).hits()+map(r, c).misses());
+	
+	if (threshold > 0 && fraction > threshold)
+	  mapImage.at<unsigned char>(r, c) = 0;
+	else if (threshold > 0 && fraction <= threshold)
+	  mapImage.at<unsigned char>(r, c) = 255;
+	else {
+	  float val =  255*(1-fraction);
+	  mapImage.at<unsigned char>(r, c) = (unsigned char)val;
+	}
+
+      }
+      // else if(map(r, c).hits() > threshold) {
+      // 	mapImage.at<unsigned char>(r, c) = 255;
+      // }
+      // else {
+      // 	mapImage.at<unsigned char>(r, c) = 0;
+      // }
+    }
+  }
+*/
 
 
 	cv::Mat grad = mapImage;
