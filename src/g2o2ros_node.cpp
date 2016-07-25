@@ -1,7 +1,8 @@
 #include <iostream> 
 
-#include <opencv2/highgui/highgui.hpp>
 
+
+//g2o
 #include "g2o/core/block_solver.h"
 #include "g2o/core/factory.h"
 #include "g2o/core/optimization_algorithm_gauss_newton.h"
@@ -29,6 +30,7 @@
 #include "nav_msgs/GetMap.h"
 
 //openCV
+#include <opencv2/highgui/highgui.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -112,12 +114,17 @@ class ROS_handler
 ////////////////
 		void poseCallback(const geometry_msgs::PoseArray& msg)
 		{			
+			clock_t begin = clock();
+						
 			nav_msgs::OccupancyGrid map_msg;	
 			map_msg.header =msg.header;
 			
 			read_and_publish(map_msg);
 
 			map_pub_.publish(map_msg);
+			
+			clock_t end = clock();
+			cout << "Time to read and publish " << 1000*(double(end -begin)/CLOCKS_PER_SEC) <<" ms"<< endl;
 		}
 
 /////////////////
