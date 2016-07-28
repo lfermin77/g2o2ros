@@ -29,11 +29,6 @@
 
 #include "nav_msgs/GetMap.h"
 
-//openCV
-#include <opencv2/highgui/highgui.hpp>
-#include <cv_bridge/cv_bridge.h>
-#include <image_transport/image_transport.h>
-#include <opencv2/imgproc/imgproc.hpp>
 
 
 //tf
@@ -55,19 +50,9 @@ using namespace g2o;
 class ROS_handler
 {
 	ros::NodeHandle n;
-	
-	image_transport::ImageTransport it_;
-	image_transport::Subscriber image_sub_;
-	image_transport::Publisher image_pub_;	
-	cv_bridge::CvImagePtr cv_ptr;
-		
-	std::string mapname_;
-	ros::Subscriber map_sub_;	
-	ros::Timer timer;
 			
-	float Decomp_threshold_;
-
-	std::vector <double> clean_time_vector, decomp_time_vector, paint_time_vector, complete_time_vector;
+	std::string mapname_;
+	ros::Timer timer;			
 
 	ros::Subscriber odom_sub_;
 	ros::Subscriber pose_sub_;
@@ -75,21 +60,18 @@ class ROS_handler
 	ros::Publisher map_pub_;
 	
 	public:
-		ROS_handler(const std::string& mapname, float threshold) : mapname_(mapname),  it_(n), Decomp_threshold_(threshold)
+		ROS_handler(const std::string& mapname, float threshold) : mapname_(mapname)
 		{
 			ROS_INFO("Waiting for the map");
 			odom_sub_ = n.subscribe("pose_corrected", 1, &ROS_handler::odomCallback, this);
 			pose_sub_ = n.subscribe("/trajectory", 1, &ROS_handler::poseCallback, this);
 			
-			map_sub_ = n.subscribe("/map", 2, &ROS_handler::mapCallback, this); //mapname_ to include different name
+
 			
 			timer = n.createTimer(ros::Duration(0.5), &ROS_handler::metronomeCallback, this);
-			image_pub_ = it_.advertise("/image_g2o", 1);
 			
 			map_pub_ =  n.advertise<nav_msgs::OccupancyGrid>("map_g2o", 10);
 			
-			cv_ptr.reset (new cv_bridge::CvImage);
-			cv_ptr->encoding = "mono8";
 		}
 
 		~ROS_handler()	{
@@ -99,7 +81,7 @@ class ROS_handler
 		void metronomeCallback(const ros::TimerEvent&)
 		{
 //		  ROS_INFO("tic tac");
-		  publish_Image();
+//		  publish_Image();
 		}
 
 
@@ -128,21 +110,8 @@ class ROS_handler
 			cout << "Time to read and publish " << 1000*(double(end -begin)/CLOCKS_PER_SEC) <<" ms"<< endl;
 		}
 
-/////////////////
-		void mapCallback(const nav_msgs::OccupancyGridConstPtr& map)
-		{
-			int a=1;
-
-		}
 
 
-
-////////////////////////
-// PUBLISHING METHODS		
-////////////////////////////		
-		void publish_Image(){
-			image_pub_.publish(cv_ptr->toImageMsg());
-		}
 
 ///////////////////////////////////////////
 
@@ -166,7 +135,6 @@ class ROS_handler
 	square_size= 1;
 	angle =  0;//M_PI/2;
 	g2oFilename= "robot-0-testmrslam.g2o";
-	mapFilename= "no importa";
 	
 
 
@@ -302,38 +270,6 @@ class ROS_handler
       d = d->next();
     }
   }
-
-  /************************************************************************
-   *                          Save map image                              *
-   ************************************************************************/
-  cv::Mat mapImage(map.rows(), map.cols(), CV_8UC1);
-//  cv::Mat mapImage(map.cols(), map.rows(), CV_8UC1);
-  mapImage.setTo(cv::Scalar(0));
-  for(int c = 0; c < map.cols(); c++) {
-    for(int r = 0; r < map.rows(); r++) {
-      if(map(r, c).misses() == 0 && map(r, c).hits() == 0) {
-	mapImage.at<unsigned char>(r, c) = 127;
-      } else {
-	float fraction = (float)map(r, c).hits()/(float)(map(r, c).hits()+map(r, c).misses());
-	
-	if (threshold > 0 && fraction > threshold)
-	  mapImage.at<unsigned char>(r, c) = 0;
-	else if (threshold > 0 && fraction <= threshold)
-	  mapImage.at<unsigned char>(r, c) = 255;
-	else {
-	  float val =  255*(1-fraction);
-	  mapImage.at<unsigned char>(r, c) = (unsigned char)val;
-	}
-
-      }
-      // else if(map(r, c).hits() > threshold) {
-      // 	mapImage.at<unsigned char>(r, c) = 255;
-      // }
-      // else {
-      // 	mapImage.at<unsigned char>(r, c) = 0;
-      // }
-    }
-  }
   
   
   /************************************************************************
@@ -371,79 +307,12 @@ class ROS_handler
 
 
 
-
-
-/*   
-  cv::Mat mapImage(map.rows(), map.cols(), CV_8UC1);
-//  cv::Mat mapImage(map.cols(), map.rows(), CV_8UC1);
-  mapImage.setTo(cv::Scalar(0));
-  for(int c = 0; c < map.cols(); c++) {
-    for(int r = 0; r < map.rows(); r++) {
-      if(map(r, c).misses() == 0 && map(r, c).hits() == 0) {
-	mapImage.at<unsigned char>(r, c) = 127;
-      } else {
-	float fraction = (float)map(r, c).hits()/(float)(map(r, c).hits()+map(r, c).misses());
-	
-	if (threshold > 0 && fraction > threshold)
-	  mapImage.at<unsigned char>(r, c) = 0;
-	else if (threshold > 0 && fraction <= threshold)
-	  mapImage.at<unsigned char>(r, c) = 255;
-	else {
-	  float val =  255*(1-fraction);
-	  mapImage.at<unsigned char>(r, c) = (unsigned char)val;
-	}
-
-      }
-      // else if(map(r, c).hits() > threshold) {
-      // 	mapImage.at<unsigned char>(r, c) = 255;
-      // }
-      // else {
-      // 	mapImage.at<unsigned char>(r, c) = 0;
-      // }
-    }
-  }
-*/
-
-
-	cv::Mat grad = mapImage;
-
-	cv::Rect first_rect = find_image_bounding_Rect(mapImage); 
-	std::cout << " first_rect " << first_rect  << std::endl; 
-	
-	
-	
-	cv_ptr->encoding = "32FC1";
-	grad.convertTo(grad, CV_32F);
-	grad.copyTo(cv_ptr->image);////most important
-
-
   return 0;
 }
 
 
 
-///////////////////////////////////
-
-		cv::Rect find_image_bounding_Rect(cv::Mat Occ_Image){
-			cv::Mat valid_image = Occ_Image < 101;
-			std::vector<std::vector<cv::Point> > test_contour;
-			cv::findContours(valid_image, test_contour, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE );
-
-			cv::Rect first_rect = cv::boundingRect(test_contour[0]);
-			for(int i=1; i < test_contour.size(); i++){
-				first_rect |= cv::boundingRect(test_contour[i]);
-			}
-			return first_rect;
-		}
-
-
-
-
-
 /////////////////////////////////////////////////
-		
-		
-
 };
 
 
