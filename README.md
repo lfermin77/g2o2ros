@@ -27,3 +27,15 @@ Optional parameters can be visualized running the node with the ``-h`` option.
 
 Hint: You will probably want to tune the ``-usable_range`` and ``-resolution`` options among others.
 
+
+
+### How to use it? ###
+
+In a terminal type:
+
+``$ rosrun cg_mrslam real_mrslam -idRobot 0 -nRobo 1 -scanTopic base_scan -o testmrslam.g2o``
+
+In another terminal type:
+
+``$ rosrun g2o2ros g2o2ros_node robot-0-testmrslam2o ``
+

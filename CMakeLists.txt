@@ -183,7 +183,7 @@ ${G2O_STUFF_LIBRARY}
 
 ## Declare a C++ executable
 add_executable(g2o2ros_node
-  src/g2o2ros_node.cpp
+  src/g2o2ros_node_tf.cpp
   src/frequency_map.cpp
   src/grid_line_traversal.cpp)
 
