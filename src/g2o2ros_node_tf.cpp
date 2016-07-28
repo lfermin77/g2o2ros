@@ -28,11 +28,14 @@
 #include "geometry_msgs/PoseArray.h"
 
 #include "nav_msgs/GetMap.h"
+#include "sensor_msgs/LaserScan.h"
+
 
 
 
 //tf
 #include <tf/transform_listener.h>
+#include <tf/transform_broadcaster.h>
 
 
 
@@ -56,6 +59,7 @@ class ROS_handler
 
 	ros::Subscriber odom_sub_;
 	ros::Subscriber pose_sub_;
+	ros::Subscriber laser_sub_;
 	
 	ros::Publisher map_pub_;
 	
@@ -63,14 +67,13 @@ class ROS_handler
 		ROS_handler(const std::string& mapname, float threshold) : mapname_(mapname)
 		{
 			ROS_INFO("Waiting for the map");
-			odom_sub_ = n.subscribe("pose_corrected", 1, &ROS_handler::odomCallback, this);
-			pose_sub_ = n.subscribe("/trajectory", 1, &ROS_handler::poseCallback, this);
-			
-
+			odom_sub_  = n.subscribe("pose_corrected", 1, &ROS_handler::odomCallback, this);
+			pose_sub_  = n.subscribe("/trajectory",    1, &ROS_handler::poseCallback, this);
+			laser_sub_ = n.subscribe("/base_scan",     1, &ROS_handler::laserCallback, this);
 			
 			timer = n.createTimer(ros::Duration(0.5), &ROS_handler::metronomeCallback, this);
 			
-			map_pub_ =  n.advertise<nav_msgs::OccupancyGrid>("map_g2o", 10);
+			map_pub_ =  n.advertise<nav_msgs::OccupancyGrid>("map", 10);
 			
 		}
 
@@ -95,10 +98,35 @@ class ROS_handler
 		}
 
 ////////////////
+		void laserCallback(const sensor_msgs::LaserScan& msg)
+		{
+//			ros::Time now = ros::Time::now();
+			ros::Time now = msg.header.stamp - ros::Duration(0.1);
+			
+			tf::TransformListener listener;
+		    tf::StampedTransform transform;
+
+		    try{
+//				listener.waitForTransform("/base_footprint", msg.header.frame_id, ros::Time(0), ros::Duration(3.0));
+//				listener.lookupTransform ("/base_footprint", msg.header.frame_id, ros::Time(0), transform);
+				listener.waitForTransform("/odom", msg.header.frame_id, ros::Time(0), ros::Duration(3.0));
+				listener.lookupTransform ("/odom", msg.header.frame_id, ros::Time(0), transform);
+			}
+			catch (tf::TransformException &ex) {
+			  ROS_ERROR("%s",ex.what());
+			  ros::Duration(1.0).sleep();
+			}
+
+			cout <<"Transformation value; x " << transform.getOrigin().x()<< ", y "<< transform.getOrigin().y()<<", and theta " << tf::getYaw(transform.getRotation() ) << endl;
+		}
+
+////////////////
 		void poseCallback(const geometry_msgs::PoseArray& msg)
 		{			
 			clock_t begin = clock();
-						
+
+			cout << "Number of poses " << msg.poses.size() << endl;
+									
 			nav_msgs::OccupancyGrid map_msg;	
 			map_msg.header =msg.header;
 			
@@ -108,6 +136,14 @@ class ROS_handler
 			
 			clock_t end = clock();
 			cout << "Time to read and publish " << 1000*(double(end -begin)/CLOCKS_PER_SEC) <<" ms"<< endl;
+
+			for(int i=0; i< msg.poses.size();i++)
+				cout <<" Point "<< i <<": x " << msg.poses[i].position.x<< ", y "<< msg.poses[i].position.y <<", and theta " << tf::getYaw(msg.poses[i].orientation) << endl;
+
+
+//			cout <<"First Point; x " << msg.poses.front().position.x<< ", y "<< msg.poses.front().position.y <<", and theta " << tf::getYaw(msg.poses.front().orientation) << endl;
+//			cout <<"Last Point; x " << msg.poses.back().position.x<< ", y "<< msg.poses.back().position.y <<", and theta " << tf::getYaw(msg.poses.back().orientation) << endl;
+
 		}
 
 
@@ -158,7 +194,7 @@ class ROS_handler
 			vector<int> vertexIds(graph->vertices().size());
 			int k = 0;
 			for(OptimizableGraph::VertexIDMap::iterator it = graph->vertices().begin(); it != graph->vertices().end(); ++it) {
-			vertexIds[k++] = (it->first);
+				vertexIds[k++] = (it->first);
 			}  
 			sort(vertexIds.begin(), vertexIds.end());
 			
@@ -178,29 +214,31 @@ class ROS_handler
 			SE2 baseTransform(0,0,angle);
 			
 			for(size_t i = 0; i < vertexIds.size(); ++i) {
-			OptimizableGraph::Vertex *_v = graph->vertex(vertexIds[i]);
-			VertexSE2 *v = dynamic_cast<VertexSE2*>(_v);
-			if(!v) { continue; }
-			v->setEstimate(baseTransform*v->estimate());
-			OptimizableGraph::Data *d = v->userData();
-			
-			while(d) {
-				RobotLaser *robotLaser = dynamic_cast<RobotLaser*>(d);
-				if(!robotLaser) {
+				OptimizableGraph::Vertex *_v = graph->vertex(vertexIds[i]);
+				VertexSE2 *v = dynamic_cast<VertexSE2*>(_v);
+				if(!v) { continue; }
+				v->setEstimate(baseTransform*v->estimate());
+				OptimizableGraph::Data *d = v->userData();
+				
+				while(d) {
+					RobotLaser *robotLaser = dynamic_cast<RobotLaser*>(d);
+					if(!robotLaser) {
+						d = d->next();
+						continue;
+					}
+					robotLasers.push_back(robotLaser);
+					robotPoses.push_back(v->estimate());
+					double x = v->estimate().translation().x();
+					double y = v->estimate().translation().y();
+					
+//					cout <<"Point"<< i<<"; x " << x<< ", y "<< y << " and angle "<< v->estimate().rotation().angle() <<endl;
+					
+					xmax = xmax > x+usable_range ? xmax : x+usable_range;
+					ymax = ymax > y+usable_range ? ymax : y+usable_range;
+					xmin = xmin < x-usable_range ? xmin : x-usable_range;
+					ymin = ymin < y-usable_range ? ymin : y-usable_range;
+					
 					d = d->next();
-					continue;
-				}
-				robotLasers.push_back(robotLaser);
-				robotPoses.push_back(v->estimate());
-				double x = v->estimate().translation().x();
-				double y = v->estimate().translation().y();
-				
-				xmax = xmax > x+usable_range ? xmax : x+usable_range;
-				ymax = ymax > y+usable_range ? ymax : y+usable_range;
-				xmin = xmin < x-usable_range ? xmin : x-usable_range;
-				ymin = ymin < y-usable_range ? ymin : y-usable_range;
-				
-				d = d->next();
 				}
 			}
 			

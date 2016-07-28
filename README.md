@@ -29,7 +29,7 @@ Hint: You will probably want to tune the ``-usable_range`` and ``-resolution`` o
 
 
 
-### How to use it? ###
+### Example with cg_mrslam ###
 
 In a terminal type:
 
