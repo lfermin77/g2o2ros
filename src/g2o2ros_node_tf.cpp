@@ -63,18 +63,24 @@ class ROS_handler
 	
 	ros::Publisher map_pub_;
 	
+	string laser_frame_id;
+	
 	public:
+		tf::Transform  g2o_transform;
+    
 		ROS_handler(const std::string& mapname, float threshold) : mapname_(mapname)
 		{
 			ROS_INFO("Waiting for the map");
 			odom_sub_  = n.subscribe("pose_corrected", 1, &ROS_handler::odomCallback, this);
-			pose_sub_  = n.subscribe("/trajectory",    1, &ROS_handler::poseCallback, this);
+			pose_sub_  = n.subscribe("/trajectory",    1, &ROS_handler::posesCallback, this);
 			laser_sub_ = n.subscribe("/base_scan",     1, &ROS_handler::laserCallback, this);
 			
 			timer = n.createTimer(ros::Duration(0.5), &ROS_handler::metronomeCallback, this);
 			
 			map_pub_ =  n.advertise<nav_msgs::OccupancyGrid>("map", 10);
 			
+			g2o_transform = tf::Transform(tf::Quaternion(0, 0, 0, 1), tf::Vector3(0, 0, 0));		
+			laser_frame_id = "base_laser_link";	
 		}
 
 		~ROS_handler()	{
@@ -103,25 +109,26 @@ class ROS_handler
 //			ros::Time now = ros::Time::now();
 			ros::Time now = msg.header.stamp - ros::Duration(0.1);
 			
+			laser_frame_id = msg.header.frame_id;
+			
 			tf::TransformListener listener;
 		    tf::StampedTransform transform;
 
 		    try{
-//				listener.waitForTransform("/base_footprint", msg.header.frame_id, ros::Time(0), ros::Duration(3.0));
-//				listener.lookupTransform ("/base_footprint", msg.header.frame_id, ros::Time(0), transform);
-				listener.waitForTransform("/odom", msg.header.frame_id, ros::Time(0), ros::Duration(3.0));
-				listener.lookupTransform ("/odom", msg.header.frame_id, ros::Time(0), transform);
+				listener.waitForTransform("/base_footprint", msg.header.frame_id, ros::Time(0), ros::Duration(3.0));
+				listener.lookupTransform ("/base_footprint", msg.header.frame_id, ros::Time(0), transform);
 			}
 			catch (tf::TransformException &ex) {
 			  ROS_ERROR("%s",ex.what());
 			  ros::Duration(1.0).sleep();
 			}
+			
 
-			cout <<"Transformation value; x " << transform.getOrigin().x()<< ", y "<< transform.getOrigin().y()<<", and theta " << tf::getYaw(transform.getRotation() ) << endl;
+//			cout <<"Transformation value; x " << map_transform.getOrigin().x()<< ", y "<< map_transform.getOrigin().y()<<", and theta " << tf::getYaw(map_transform.getRotation() ) << endl;
 		}
 
 ////////////////
-		void poseCallback(const geometry_msgs::PoseArray& msg)
+		void posesCallback(const geometry_msgs::PoseArray& msg)
 		{			
 			clock_t begin = clock();
 
@@ -137,12 +144,43 @@ class ROS_handler
 			clock_t end = clock();
 			cout << "Time to read and publish " << 1000*(double(end -begin)/CLOCKS_PER_SEC) <<" ms"<< endl;
 
-			for(int i=0; i< msg.poses.size();i++)
-				cout <<" Point "<< i <<": x " << msg.poses[i].position.x<< ", y "<< msg.poses[i].position.y <<", and theta " << tf::getYaw(msg.poses[i].orientation) << endl;
+//			for(int i=0; i< msg.poses.size();i++)			cout <<" Point "<< i <<": x " << msg.poses[i].position.x<< ", y "<< msg.poses[i].position.y <<", and theta " << tf::getYaw(msg.poses[i].orientation) << endl;
 
 
-//			cout <<"First Point; x " << msg.poses.front().position.x<< ", y "<< msg.poses.front().position.y <<", and theta " << tf::getYaw(msg.poses.front().orientation) << endl;
+			cout <<"First Point; x " << msg.poses.front().position.x<< ", y "<< msg.poses.front().position.y <<", and theta " << tf::getYaw(msg.poses.front().orientation) << endl;
 //			cout <<"Last Point; x " << msg.poses.back().position.x<< ", y "<< msg.poses.back().position.y <<", and theta " << tf::getYaw(msg.poses.back().orientation) << endl;
+
+			tf::Transform optimized_transform;
+
+			optimized_transform.setOrigin( tf::Vector3(msg.poses.front().position.x, msg.poses.front().position.y, 0.0) );
+			tf::Quaternion q;
+			q.setRPY(0, 0, tf::getYaw(msg.poses.front().orientation));
+			optimized_transform.setRotation(q);
+
+
+
+			tf::TransformListener listener;
+		    tf::StampedTransform transform;
+
+		    try{
+				listener.waitForTransform("/odom", laser_frame_id, ros::Time(0), ros::Duration(3.0));
+				listener.lookupTransform ("/odom", laser_frame_id, ros::Time(0), transform);
+			}
+			catch (tf::TransformException &ex) {
+			  ROS_ERROR("listen  stageros transform %s",ex.what());
+			  ros::Duration(1.0).sleep();
+			}
+
+			tf::Transform odom_transform;
+			odom_transform.setOrigin( transform.getOrigin() );
+			q.setRPY(0, 0, tf::getYaw(transform.getRotation() ) );
+			odom_transform.setRotation(q);
+			
+//			odom_transform.setRotation( transform.getRotation() );
+
+			g2o_transform = optimized_transform * ( odom_transform.inverse() );
+
+			cout <<"G2O Transformation; x " << g2o_transform.getOrigin().x()<< ", y "<< g2o_transform.getOrigin().y()<<", and theta " << tf::getYaw(g2o_transform.getRotation() ) << endl;
 
 		}
 
@@ -187,9 +225,13 @@ class ROS_handler
 			SlamBlockSolver *blockSolver = new SlamBlockSolver(linearSolver);
 			OptimizationAlgorithmGaussNewton *solverGauss = new OptimizationAlgorithmGaussNewton(blockSolver);
 			SparseOptimizer *graph = new SparseOptimizer();
-			graph->setAlgorithm(solverGauss);    
+			graph->setAlgorithm(solverGauss);
+			   
+						clock_t begin_load = clock(); 
 			graph->load(g2oFilename.c_str());
-			
+						clock_t end_load = clock();
+						cout << "Time to load " << 1000*(double(end_load -begin_load)/CLOCKS_PER_SEC) <<" ms"<< endl;
+						
 			// Sort verteces
 			vector<int> vertexIds(graph->vertices().size());
 			int k = 0;
@@ -364,7 +406,13 @@ int main(int argc, char **argv)
 	if (argc ==2){ decomp_th = atof(argv[1]); }	
 	
 	ROS_handler mg(mapname, decomp_th);
-	ros::spin();
+
+	while (ros::ok()){
+		ros::spinOnce();
+		static tf::TransformBroadcaster tf_broadcaster;
+		tf::StampedTransform map_transform = tf::StampedTransform(mg.g2o_transform, ros::Time::now(), "map", "odom");
+		tf_broadcaster.sendTransform(map_transform);
+	}
 	
 	return 0;
 }

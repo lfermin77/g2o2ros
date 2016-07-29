@@ -33,7 +33,7 @@ Hint: You will probably want to tune the ``-usable_range`` and ``-resolution`` o
 
 In a terminal type:
 
-``$ rosrun cg_mrslam real_mrslam -idRobot 0 -nRobo 1 -scanTopic base_scan -o testmrslam.g2o``
+``$ rosrun cg_mrslam real_mrslam -idRobot 0 -nRobots 1 -scanTopic base_scan -o testmrslam.g2o -fixedFrame map``
 
 In another terminal type:
 
