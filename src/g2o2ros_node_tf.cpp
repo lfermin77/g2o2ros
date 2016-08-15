@@ -137,7 +137,40 @@ class ROS_handler
 			nav_msgs::OccupancyGrid map_msg;	
 			map_msg.header =msg.header;
 			
-			read_and_publish(map_msg);
+
+
+
+			/************************************************************************
+			*                          Loading Graph                               *
+			************************************************************************/
+			string	g2oFilename= "robot-0-testmrslam.g2o";
+			// Load graph
+			typedef BlockSolver< BlockSolverTraits<-1, -1> >  SlamBlockSolver;
+			typedef LinearSolverCSparse<SlamBlockSolver::PoseMatrixType> SlamLinearSolver;
+			SlamLinearSolver *linearSolver = new SlamLinearSolver();
+			linearSolver->setBlockOrdering(false);
+			SlamBlockSolver *blockSolver = new SlamBlockSolver(linearSolver);
+			OptimizationAlgorithmGaussNewton *solverGauss = new OptimizationAlgorithmGaussNewton(blockSolver);
+			SparseOptimizer *graph = new SparseOptimizer();
+			graph->setAlgorithm(solverGauss);
+			   
+						clock_t begin_load = clock(); 
+			graph->load(g2oFilename.c_str());
+						clock_t end_load = clock();
+						cout << "Time to load " << 1000*(double(end_load -begin_load)/CLOCKS_PER_SEC) <<" ms"<< endl;
+
+
+			read_and_publish(map_msg, graph);
+
+
+
+
+
+
+
+
+
+
 
 			map_pub_.publish(map_msg);
 			
@@ -189,13 +222,13 @@ class ROS_handler
 
 ///////////////////////////////////////////
 
-		int read_and_publish(nav_msgs::OccupancyGrid &map_msg) {
+		int read_and_publish(nav_msgs::OccupancyGrid &map_msg, SparseOptimizer *graph) {
 			/************************************************************************
 			*                          Input handling                              *
 			************************************************************************/
 			float rows, cols, gain, square_size;
 			float resolution, max_range, usable_range, angle, threshold;
-			string g2oFilename, mapFilename;
+//			string g2oFilename, mapFilename;
 			
 			
 			resolution = 0.05f;
@@ -208,29 +241,13 @@ class ROS_handler
 			gain =  1;
 			square_size= 1;
 			angle =  0;//M_PI/2;
-			g2oFilename= "robot-0-testmrslam.g2o";
+
 	
 
 			
 			
 			
-			/************************************************************************
-			*                          Loading Graph                               *
-			************************************************************************/
-			// Load graph
-			typedef BlockSolver< BlockSolverTraits<-1, -1> >  SlamBlockSolver;
-			typedef LinearSolverCSparse<SlamBlockSolver::PoseMatrixType> SlamLinearSolver;
-			SlamLinearSolver *linearSolver = new SlamLinearSolver();
-			linearSolver->setBlockOrdering(false);
-			SlamBlockSolver *blockSolver = new SlamBlockSolver(linearSolver);
-			OptimizationAlgorithmGaussNewton *solverGauss = new OptimizationAlgorithmGaussNewton(blockSolver);
-			SparseOptimizer *graph = new SparseOptimizer();
-			graph->setAlgorithm(solverGauss);
-			   
-						clock_t begin_load = clock(); 
-			graph->load(g2oFilename.c_str());
-						clock_t end_load = clock();
-						cout << "Time to load " << 1000*(double(end_load -begin_load)/CLOCKS_PER_SEC) <<" ms"<< endl;
+
 						
 			// Sort verteces
 			vector<int> vertexIds(graph->vertices().size());
